@@ -1,0 +1,44 @@
+"""FAQ CRUD endpoints (in-memory, for end-to-end flow checks)."""
+
+from fastapi import APIRouter, HTTPException, Query, status
+
+from faq_rag.models.faq import FAQ, FAQCreate, FAQUpdate
+from faq_rag.services.faq import faq_store
+
+router = APIRouter(prefix="/faqs", tags=["faqs"])
+
+
+@router.post("", response_model=FAQ, status_code=status.HTTP_201_CREATED)
+def create_faq(payload: FAQCreate) -> FAQ:
+    return faq_store.create(payload)
+
+
+@router.get("", response_model=list[FAQ])
+def list_faqs(
+    q: str | None = Query(default=None, description="按标准问/答案/相似问关键词过滤"),
+    category: str | None = Query(default=None, description="按类目精确过滤"),
+    enabled: bool | None = Query(default=None, description="按是否生效过滤"),
+) -> list[FAQ]:
+    return faq_store.list(q=q, category=category, enabled=enabled)
+
+
+@router.get("/{faq_id}", response_model=FAQ)
+def get_faq(faq_id: str) -> FAQ:
+    faq = faq_store.get(faq_id)
+    if faq is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ not found")
+    return faq
+
+
+@router.patch("/{faq_id}", response_model=FAQ)
+def update_faq(faq_id: str, payload: FAQUpdate) -> FAQ:
+    faq = faq_store.update(faq_id, payload)
+    if faq is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ not found")
+    return faq
+
+
+@router.delete("/{faq_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_faq(faq_id: str) -> None:
+    if not faq_store.delete(faq_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ not found")
