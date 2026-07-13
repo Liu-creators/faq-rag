@@ -25,6 +25,9 @@ env/
 # Local data (scraped docs, indexes, etc.)
 data/
 
+# Docker volumes (MySQL / Milvus / etcd / minio)
+volumes/
+
 # IDE / OS
 .idea/
 .vscode/

@@ -13,7 +13,7 @@
 
 FAQ 不是唯一引擎，而是旁路式的确定性答案层：优先用 FAQ 锁口径，FAQ 不够再用文档 RAG 补覆盖。
 
-当前已具备 FAQ CRUD、一阶段检索（ExactContainment 占位）与置信度分流骨架，便于端到端联调；FAQ 改写与文档 RAG 仍为占位实现，向量 / BM25 / 自研 embedding 后续接入。
+当前已具备 FAQ CRUD（**MySQL 持久化**）、一阶段检索（默认 **Milvus 混合检索**：稠密向量 + BM25 / RRF）、置信度分流，以及中置信区间的 FAQ 锚定 LLM 改写；文档 RAG 仍为占位。
 
 ## 整体流程
 
@@ -22,7 +22,7 @@ FAQ 不是唯一引擎，而是旁路式的确定性答案层：优先用 FAQ �
     │
     ▼
 ┌───────────────────┐
-│  1. FAQ 检索      │  ← 第一步：标准问 / 相似问匹配
+│  1. FAQ 检索      │  ← Milvus：dense + BM25 混合召回
 └─────────┬─────────┘
           │
           ├─ 置信度极高 ──► 原样返回标准答案（不改写）
@@ -44,7 +44,7 @@ FAQ 不是唯一引擎，而是旁路式的确定性答案层：优先用 FAQ �
 1. **FAQ 优先**：确定性问题走 FAQ，保证答案稳定。
 2. **按置信度分流**：极高 → 不改写；高 → 可改写但锚定 FAQ 事实；低/未命中 → 文档 RAG。
 3. **文档 RAG 兜底**：非高频、说明性内容，不与 FAQ 抢主路径。
-4. **检索层可演进**：当前 FAQ 为内存 CRUD；向量 / BM25 / 自研 embedding 后续替换占位实现。
+4. **检索层**：默认 Milvus 混合检索（向量语义 + BM25 关键词）；可回退到内存 Word2Vec 或 ExactContainment。
 
 ## 环境
 
@@ -53,44 +53,69 @@ FAQ 不是唯一引擎，而是旁路式的确定性答案层：优先用 FAQ �
 ```bash
 conda activate faq-rag
 pip install -e .
+cp .env.example .env   # 填写 LLM_API_KEY；并配置稠密向量来源
 ```
 
-## 启动
+### 启动依赖（MySQL + Milvus）
 
-先激活环境，并确认命令来自 conda（若本机同时装了 pyenv，容易误用全局 `fastapi`）：
+项目根目录 `docker-compose.yml` 同时提供 **MySQL**（FAQ 持久化）与 **Milvus**（混合检索；内置 BM25 需完整 Milvus ≥ 2.5）：
+
+```bash
+docker compose up -d
+docker compose ps
+# MySQL：localhost:3306 / 库 faq_rag（用户 faq / 密码 faq）
+# Milvus：http://localhost:19530
+```
+
+### 配置说明
+
+| 变量 | 必填 | 默认 | 说明 |
+|------|------|------|------|
+| `MYSQL_HOST` | 否 | `127.0.0.1` | MySQL 主机 |
+| `MYSQL_PORT` | 否 | `3306` | MySQL 端口 |
+| `MYSQL_USER` | 否 | `faq` | MySQL 用户 |
+| `MYSQL_PASSWORD` | 否 | `faq` | MySQL 密码 |
+| `MYSQL_DATABASE` | 否 | `faq_rag` | 数据库名 |
+| `DATABASE_URL` | 否 | （由上面拼出） | 完整 SQLAlchemy URL，设置后优先 |
+| `LLM_API_KEY` | 是（走改写时） | — | DeepSeek API Key |
+| `LLM_BASE_URL` | 否 | `https://api.deepseek.com` | OpenAI 兼容 Base URL |
+| `LLM_MODEL` | 否 | `deepseek-v4-flash` | 模型名 |
+| `MILVUS_ENABLED` | 否 | `true` | 是否启用 Milvus 混合检索 |
+| `MILVUS_URI` | 否 | `http://localhost:19530` | Milvus 地址 |
+| `MILVUS_TOKEN` | 否 | （空） | 认证 token（如有） |
+| `MILVUS_COLLECTION` | 否 | `faq_questions` | 集合名 |
+| `WORD2VEC_MODEL_PATH` | 二选一* | — | 稠密向量：预训 `.kv` |
+| `EMBEDDING_MODEL` + `EMBEDDING_DIM` | 二选一* | — | 稠密向量：OpenAI 兼容 embeddings |
+
+\* 启用 Milvus 时必须配置其一：`WORD2VEC_MODEL_PATH`，或 `EMBEDDING_MODEL` + `EMBEDDING_DIM`（可选 `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY`，默认回落到 LLM 相关变量）。
+
+关闭 Milvus（`MILVUS_ENABLED=false`）时：有 Word2Vec 则用内存线性扫描；否则 ExactContainment。
+
+### Word2Vec 稠密向量（本地起步）
+
+```bash
+python scripts/train_word2vec.py \
+  --input data/raw/ollama_docs \
+  --output data/models/word2vec.kv
+
+# .env
+WORD2VEC_MODEL_PATH=data/models/word2vec.kv
+```
+
+混合检索流程：Milvus 用 **dense ANN + 中文 BM25** 做 RRF 召回；对外置信度仍用**稠密余弦**（兼容现有 0.90 / 0.70 阈值）。
+
+## 启动
 
 ```bash
 conda activate faq-rag
 which python   # 应指向 .../miniconda3/envs/faq-rag/bin/python
-which fastapi  # 应指向 .../miniconda3/envs/faq-rag/bin/fastapi
-```
 
-推荐启动方式（不依赖 `fastapi` CLI，更稳）：
+# 先确保 MySQL + Milvus 已起
+docker compose up -d
 
-```bash
-# 方式一：直接运行（热重载）
 python main.py
-
-# 方式二：uvicorn
+# 或
 uvicorn faq_rag.main:app --reload --host 0.0.0.0 --port 8000
-
-# 方式三：FastAPI CLI（需 conda 环境内的 fastapi[standard]）
-fastapi dev src/faq_rag/main.py
-```
-
-若 `fastapi` 报错 `please install "fastapi[standard]"`，多半是 pyenv shim 抢了命令，可任选其一：
-
-```bash
-# 看当前 fastapi 是否在 conda 环境内
-which fastapi
-
-# 用环境内绝对路径
-"$CONDA_PREFIX/bin/fastapi" dev src/faq_rag/main.py
-
-# 或先重装到当前环境，再确认 which
-pip install -e .
-hash -r
-which fastapi
 ```
 
 启动后访问：
@@ -100,9 +125,9 @@ which fastapi
 - 提问入口：http://127.0.0.1:8000/ask
 - 交互文档：http://127.0.0.1:8000/docs
 
-## FAQ CRUD（当前为内存存储）
+## FAQ CRUD（MySQL 持久化）
 
-用于快速验证整体流程，进程重启后数据会丢失。
+FAQ 业务数据存在 MySQL 表 `faqs`（标准问 / 答案 / 相似问法 JSON）。应用启动时自动 `create_all`；Milvus 仍只索引问法向量。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -125,60 +150,37 @@ curl -s http://127.0.0.1:8000/faqs -H 'Content-Type: application/json' -d '{
 
 ## Ask（提问入口）
 
-`POST /ask`：先 FAQ 检索，再按置信度分流。改写与文档 RAG 目前返回占位文案，响应里的 `route` / `notes` 可用于确认走了哪条分支。
+`POST /ask`：先 FAQ 检索，再按置信度分流。中置信走 FAQ 锚定 LLM 改写；文档 RAG 目前返回占位文案。
 
-| 字段 | 说明 |
-|------|------|
-| `question` | 用户提问 |
-| `answer` | 最终答案（或占位文案） |
-| `route` | `faq_verbatim` / `faq_rewrite` / `doc_rag` |
-| `confidence` | FAQ 命中分；未命中时可能为 `null` |
-| `faq_match` | 最佳 FAQ 命中详情（含 `matched_text`） |
-| `notes` | 骨架阶段分流说明 |
-
-示例（需先创建 FAQ）：
-
-```bash
-curl -s http://127.0.0.1:8000/ask -H 'Content-Type: application/json' -d '{
-  "question": "Ollama 怎么装"
-}'
-```
-
-当前占位阈值：≥ 0.90 → 原样返回；≥ 0.70 → 改写占位；否则 → 文档 RAG 占位。
+当前阈值：≥ 0.90 → 原样返回；≥ 0.70 → FAQ 锚定 LLM 改写；否则 → 文档 RAG 占位。
 
 ## 项目结构
 
 ```text
-main.py                        # 根入口（委托 faq_rag.main）
-scripts/                       # 文档采集等脚本（见 scripts/README.md）
-data/raw/ollama_docs/          # 采集得到的原始文档语料
+main.py                        # 根入口
+docker-compose.yml             # MySQL + Milvus standalone
+scripts/                       # 文档采集 / Word2Vec 训练
+data/raw/ollama_docs/          # 原始文档语料
 src/faq_rag/
-  main.py                      # FastAPI 应用入口
-  models/
-    faq.py                     # FAQ Pydantic 模型
-    ask.py                     # 问答请求 / 响应模型
+  config.py                    # 环境变量配置
+  db/                          # SQLAlchemy / MySQL
   services/
     faq/                       # FAQ 存储与检索
-      store.py
-      retriever.py
-    similarity/                # 相似度索引（可替换实现）
-      index.py
-    ask/                       # 问答流水线与兜底
-      pipeline.py
-      rewriter.py
-      doc_rag.py
-  api/
-    routes/
-      health.py                # 健康检查
-      faqs.py                  # FAQ CRUD
-      ask.py                   # 提问入口
+    similarity/                # 相似度索引
+      milvus_index.py          # Milvus 混合检索（dense + BM25）
+      embedder.py              # Word2Vec / OpenAI 兼容稠密编码
+      word2vec.py              # 内存 Word2Vec 回退
+      index.py                 # Protocol + ExactContainment
+    ask/                       # 问答流水线
+  api/routes/                  # HTTP 路由
 ```
 
 ## 当前进度
 
-- [x] FAQ CRUD（内存，流程验证）
-- [x] FAQ 旁路门控骨架（极高置信原样 / 高置信改写占位 / 否则文档 RAG 占位）
-- [x] 相似度索引骨架（ExactContainment；向量 / BM25 待接入）
-- [ ] FAQ 改写（LLM，事实锁定）
-- [ ] 向量与检索层（自研 embedding、BM25 等）
+- [x] FAQ CRUD（MySQL 持久化）
+- [x] FAQ 旁路门控骨架（极高置信原样 / 高置信改写 / 否则文档 RAG 占位）
+- [x] FAQ 改写（LLM，事实锁定）
+- [x] Milvus 混合检索（稠密向量 + 中文 BM25 / RRF）
+- [x] 稠密编码器（Word2Vec 或 OpenAI 兼容 embeddings）
+- [ ] FAQ CRUD 时增量 upsert（当前仍为查询前全量同步）
 - [ ] 文档 RAG 粗粒度兜底

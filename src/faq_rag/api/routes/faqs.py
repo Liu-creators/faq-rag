@@ -1,6 +1,6 @@
-"""FAQ CRUD endpoints (in-memory, for end-to-end flow checks)."""
+"""FAQ CRUD 接口（MySQL 持久化）。"""
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query, status
 
 from faq_rag.models.faq import FAQ, FAQCreate, FAQUpdate
 from faq_rag.services.faq import faq_store
@@ -24,21 +24,14 @@ def list_faqs(
 
 @router.get("/{faq_id}", response_model=FAQ)
 def get_faq(faq_id: str) -> FAQ:
-    faq = faq_store.get(faq_id)
-    if faq is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ not found")
-    return faq
+    return faq_store.get(faq_id)
 
 
 @router.patch("/{faq_id}", response_model=FAQ)
 def update_faq(faq_id: str, payload: FAQUpdate) -> FAQ:
-    faq = faq_store.update(faq_id, payload)
-    if faq is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ not found")
-    return faq
+    return faq_store.update(faq_id, payload)
 
 
 @router.delete("/{faq_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_faq(faq_id: str) -> None:
-    if not faq_store.delete(faq_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ not found")
+    faq_store.delete(faq_id)
