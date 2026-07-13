@@ -29,6 +29,7 @@ DEFAULT_DOC_RAW_DIR = "data/raw/ollama_docs"
 DEFAULT_DOC_RAG_TOP_K = 5
 DEFAULT_DOC_CHUNK_SIZE = 500
 DEFAULT_DOC_CHUNK_OVERLAP = 80
+DEFAULT_LANGSMITH_PROJECT = "faq-rag"
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,9 @@ class Settings:
     doc_rag_top_k: int
     doc_chunk_size: int
     doc_chunk_overlap: int
+    langsmith_tracing: bool
+    langsmith_api_key: str
+    langsmith_project: str
 
     @property
     def llm_configured(self) -> bool:
@@ -139,7 +143,15 @@ def get_settings() -> Settings:
             return default
         return value if value > 0 else default
 
-    return Settings(
+    langsmith_flag = os.getenv("LANGSMITH_TRACING", "false").strip().lower()
+    langsmith_tracing = langsmith_flag in {"1", "true", "yes", "on"}
+    langsmith_api_key = os.getenv("LANGSMITH_API_KEY", "").strip()
+    langsmith_project = (
+        os.getenv("LANGSMITH_PROJECT", DEFAULT_LANGSMITH_PROJECT).strip()
+        or DEFAULT_LANGSMITH_PROJECT
+    )
+
+    settings = Settings(
         llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
         llm_base_url=os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL).strip().rstrip("/")
         or DEFAULT_LLM_BASE_URL,
@@ -169,4 +181,23 @@ def get_settings() -> Settings:
         doc_rag_top_k=_positive_int("DOC_RAG_TOP_K", DEFAULT_DOC_RAG_TOP_K),
         doc_chunk_size=_positive_int("DOC_CHUNK_SIZE", DEFAULT_DOC_CHUNK_SIZE),
         doc_chunk_overlap=_positive_int("DOC_CHUNK_OVERLAP", DEFAULT_DOC_CHUNK_OVERLAP),
+        langsmith_tracing=langsmith_tracing,
+        langsmith_api_key=langsmith_api_key,
+        langsmith_project=langsmith_project,
     )
+    apply_langsmith_env(settings)
+    return settings
+
+
+def apply_langsmith_env(settings: Settings | None = None) -> None:
+    """将 Settings 中的 LangSmith 开关同步到进程环境，供 LangChain / LangSmith SDK 读取。"""
+    cfg = settings or get_settings()
+    os.environ["LANGSMITH_TRACING"] = "true" if cfg.langsmith_tracing else "false"
+    if cfg.langsmith_api_key:
+        os.environ["LANGSMITH_API_KEY"] = cfg.langsmith_api_key
+    os.environ["LANGSMITH_PROJECT"] = cfg.langsmith_project
+    # 兼容旧环境变量名
+    os.environ["LANGCHAIN_TRACING_V2"] = os.environ["LANGSMITH_TRACING"]
+    if cfg.langsmith_api_key:
+        os.environ["LANGCHAIN_API_KEY"] = cfg.langsmith_api_key
+    os.environ["LANGCHAIN_PROJECT"] = cfg.langsmith_project

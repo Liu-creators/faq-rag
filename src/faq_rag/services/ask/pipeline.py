@@ -1,7 +1,13 @@
-"""提问流水线：先 FAQ，再按置信度分流改写 / 文档 RAG。"""
+"""提问流水线：先 FAQ，再按置信度分流改写 / 文档 RAG（LangChain + LangSmith）。"""
+
+from langsmith import traceable
 
 from faq_rag.models.ask import AnswerRoute, AskRequest, AskResponse, FAQMatch
 from faq_rag.services.ask.doc_rag import answer_from_documents
+from faq_rag.services.ask.lc_retrievers import (
+    FAQLangChainRetriever,
+    documents_to_scored_faqs,
+)
 from faq_rag.services.ask.rewriter import rewrite_from_faq
 from faq_rag.services.faq import FAQRetriever, faq_retriever
 
@@ -13,9 +19,15 @@ CONFIDENCE_REWRITE = 0.90  # 高：允许改写
 class AskPipeline:
     def __init__(self, retriever: FAQRetriever | None = None) -> None:
         self._retriever = retriever or faq_retriever
+        self._lc_faq_retriever = FAQLangChainRetriever(inner=self._retriever, top_k=1)
 
+    @traceable(name="ask", run_type="chain")
     def run(self, request: AskRequest) -> AskResponse:
-        hits = self._retriever.retrieve(request.question, top_k=1)
+        docs = self._lc_faq_retriever.invoke(
+            request.question,
+            config={"run_name": "faq_retrieve"},
+        )
+        hits = documents_to_scored_faqs(docs)
         if not hits:
             rag = answer_from_documents(question=request.question)
             return AskResponse(

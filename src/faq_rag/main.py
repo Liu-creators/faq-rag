@@ -8,13 +8,17 @@ from fastapi import FastAPI
 from faq_rag import __version__
 from faq_rag.api.exception_handlers import register_exception_handlers
 from faq_rag.api.routes import api_router
+from faq_rag.config import apply_langsmith_env, get_settings
 from faq_rag.db import init_db
 
 load_dotenv()
+# 尽早同步 LangSmith 环境变量，便于后续 LangChain 调用上报 trace
+apply_langsmith_env(get_settings())
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    apply_langsmith_env(get_settings())
     init_db()
     yield
 

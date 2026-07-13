@@ -1,4 +1,4 @@
-"""文档 RAG：粗粒度 / 长尾兜底（检索 + 生成）。"""
+"""文档 RAG：粗粒度 / 长尾兜底（LangChain 检索包装 + 生成）。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from faq_rag.config import get_settings
 from faq_rag.models.ask import DocSource
 from faq_rag.services.ask.generator import generate_from_chunks
+from faq_rag.services.ask.lc_retrievers import (
+    DocChunkLangChainRetriever,
+    documents_to_scored_chunks,
+)
 from faq_rag.services.doc.retriever import DocChunkRetriever, doc_chunk_retriever
 
 
@@ -24,10 +28,12 @@ def answer_from_documents(
     top_k: int | None = None,
 ) -> DocRagResult:
     """检索文档切块并用 LLM 生成带引用的回答。"""
-    index = retriever or doc_chunk_retriever
     settings = get_settings()
     limit = top_k if top_k is not None else settings.doc_rag_top_k
-    hits = index.retrieve(question, top_k=limit)
+    inner = retriever or doc_chunk_retriever
+    lc_retriever = DocChunkLangChainRetriever(inner=inner, top_k=limit)
+    docs = lc_retriever.invoke(question, config={"run_name": "doc_retrieve"})
+    hits = documents_to_scored_chunks(docs)
 
     if not hits:
         return DocRagResult(
