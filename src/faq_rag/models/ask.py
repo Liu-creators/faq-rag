@@ -1,4 +1,4 @@
-"""Ask / answer pipeline schemas."""
+"""提问 / 回答流水线相关 schema。"""
 
 from enum import Enum
 
@@ -8,7 +8,7 @@ from faq_rag.models.faq import FAQ
 
 
 class AnswerRoute(str, Enum):
-    """Which branch produced the final answer."""
+    """最终答案由哪条分支产生。"""
 
     FAQ_VERBATIM = "faq_verbatim"  # 极高置信：原样返回
     FAQ_REWRITE = "faq_rewrite"  # 高置信：基于 FAQ 改写
@@ -20,7 +20,7 @@ class AskRequest(BaseModel):
 
 
 class FAQMatch(BaseModel):
-    """Best FAQ hit from the first-stage retriever."""
+    """一阶段检索得到的最佳 FAQ 命中。"""
 
     faq: FAQ
     score: float = Field(..., ge=0.0, le=1.0, description="占位置信度分数")

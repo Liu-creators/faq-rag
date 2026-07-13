@@ -82,13 +82,13 @@ def load_robots(base_url: str, user_agent: str) -> RobotFileParser:
 
     try:
         parser.read()
-        logging.info("Loaded robots.txt: %s", robots_url)
+        logging.info("已加载 robots.txt：%s", robots_url)
     except Exception as exc:
-        logging.warning("Cannot load robots.txt (%s). Stop by default. Error: %s", robots_url, exc)
-        raise RuntimeError("robots.txt unavailable; please verify access manually before crawling.") from exc
+        logging.warning("无法加载 robots.txt（%s），默认停止。错误：%s", robots_url, exc)
+        raise RuntimeError("无法获取 robots.txt；请先手动确认访问权限再爬取。") from exc
 
     if not parser.can_fetch(user_agent, base_url):
-        raise PermissionError(f"robots.txt disallows this crawler: {user_agent}")
+        raise PermissionError(f"robots.txt 禁止此爬虫：{user_agent}")
 
     return parser
 
@@ -157,7 +157,7 @@ def extract_main_content(html: str) -> tuple[str, str]:
     )
 
     title_node = soup.select_one("h1") or soup.title
-    title = title_node.get_text(" ", strip=True) if title_node else "Untitled"
+    title = title_node.get_text(" ", strip=True) if title_node else "未命名"
 
     markdown = to_markdown(
         str(main),
@@ -229,12 +229,12 @@ def fetch_document(
         response = session.get(source_url, timeout=timeout)
         response.raise_for_status()
     except requests.RequestException as exc:
-        logging.warning("Failed: %s | %s", source_url, exc)
+        logging.warning("抓取失败：%s | %s", source_url, exc)
         return None
 
     title, content = extract_main_content(response.text)
     if len(content) < 80:
-        logging.warning("Content too short, skipped: %s", source_url)
+        logging.warning("内容过短，已跳过：%s", source_url)
         return None
 
     return title, content, "html_to_markdown", response.status_code
@@ -277,19 +277,19 @@ def crawl(
     session = build_session(user_agent)
     robots = load_robots(BASE_URL, user_agent)
 
-    logging.info("Fetching documentation index: %s", LLMS_TXT_URL)
+    logging.info("正在获取文档索引：%s", LLMS_TXT_URL)
     response = session.get(LLMS_TXT_URL, timeout=timeout)
     response.raise_for_status()
 
     seed_urls = parse_llms_txt(response.text)
     if not seed_urls:
-        raise RuntimeError("No document URLs found in llms.txt")
+        raise RuntimeError("llms.txt 中未找到文档 URL")
 
     queue = [url for url in seed_urls if is_allowed_url(url, robots, user_agent)]
     visited: set[str] = set()
     saved_count = 0
 
-    logging.info("Found %d allowed seed URLs", len(queue))
+    logging.info("找到 %d 个允许抓取的种子 URL", len(queue))
 
     while queue and saved_count < max_pages:
         source_url = normalize_url(queue.pop(0))
@@ -298,7 +298,7 @@ def crawl(
             continue
 
         visited.add(source_url)
-        logging.info("[%d/%d] Fetching %s", saved_count + 1, max_pages, source_url)
+        logging.info("[%d/%d] 正在抓取 %s", saved_count + 1, max_pages, source_url)
 
         result = fetch_document(session, source_url, timeout)
         if result is None:
@@ -344,41 +344,41 @@ def crawl(
 
         time.sleep(delay_seconds)
 
-    logging.info("Done. Saved %d documents to %s", saved_count, output_dir)
-    logging.info("Manifest: %s", manifest_path)
+    logging.info("完成。已保存 %d 篇文档到 %s", saved_count, output_dir)
+    logging.info("清单文件：%s", manifest_path)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Collect Ollama official documentation for a FAQ + RAG knowledge base."
+        description="采集 Ollama 官方文档，用于 FAQ + RAG 知识库。"
     )
     parser.add_argument(
         "--output-dir",
         default="data/raw/ollama_docs",
-        help="Directory for collected Markdown files and manifest.jsonl",
+        help="采集得到的 Markdown 与 manifest.jsonl 的输出目录",
     )
     parser.add_argument(
         "--max-pages",
         type=int,
         default=100,
-        help="Maximum number of pages to save",
+        help="最多保存的页面数",
     )
     parser.add_argument(
         "--delay",
         type=float,
         default=1.5,
-        help="Delay between requests in seconds",
+        help="请求间隔（秒）",
     )
     parser.add_argument(
         "--timeout",
         type=int,
         default=20,
-        help="HTTP request timeout in seconds",
+        help="HTTP 请求超时（秒）",
     )
     parser.add_argument(
         "--user-agent",
         default=DEFAULT_USER_AGENT,
-        help="Crawler User-Agent. Replace contact address before running.",
+        help="爬虫 User-Agent。运行前请替换其中的联系方式。",
     )
     return parser.parse_args()
 
@@ -400,10 +400,10 @@ def main() -> None:
             user_agent=args.user_agent,
         )
     except KeyboardInterrupt:
-        logging.warning("Stopped by user.")
+        logging.warning("已由用户中断。")
         sys.exit(130)
     except Exception as exc:
-        logging.exception("Collection failed: %s", exc)
+        logging.exception("采集失败：%s", exc)
         sys.exit(1)
 
 

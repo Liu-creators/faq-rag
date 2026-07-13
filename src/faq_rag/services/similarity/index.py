@@ -1,8 +1,8 @@
-"""Similarity / vector index for FAQ question matching.
+"""FAQ 问题匹配用的相似度 / 向量索引。
 
-Owns corpus indexing, vectorization, and top-k search.
-Swap ExactContainmentIndex for Word2Vec / BM25 / embedding indexes later —
-FAQRetriever should only feed documents and map hits back to FAQ records.
+负责语料建库、向量化与 top-k 检索。
+优先顺序：Milvus 混合检索 → Word2VecIndex → ExactContainmentIndex。
+FAQRetriever 只负责喂入文档并映射命中结果。
 """
 
 from dataclasses import dataclass
@@ -10,13 +10,13 @@ from typing import Protocol, Sequence
 
 
 def normalize_text(text: str) -> str:
-    """Lightweight normalize shared by simple string indexes."""
+    """简易字符串索引共用的轻量归一化。"""
     return "".join(text.casefold().split())
 
 
 @dataclass(frozen=True)
 class IndexedDocument:
-    """One searchable text tied to an external id (e.g. FAQ id)."""
+    """一条可检索文本，绑定外部 id（如 FAQ id）。"""
 
     doc_id: str
     text: str
@@ -30,20 +30,19 @@ class SimilarityHit:
 
 
 class SimilarityIndex(Protocol):
-    """Build an index over documents, then search without the caller scanning the corpus."""
+    """对文档建索引，调用方无需自行扫描语料即可检索。"""
 
     def build(self, documents: Sequence[IndexedDocument]) -> None:
-        """Replace index contents. Implementations may vectorize / build vocab here."""
+        """替换索引内容。实现方可在此做向量化 / 建词表。"""
 
     def search(self, query: str, *, top_k: int = 1) -> list[SimilarityHit]:
-        """Return up to ``top_k`` unique ``doc_id`` hits, best score first."""
+        """返回最多 ``top_k`` 条唯一 ``doc_id`` 命中，按分数从高到低。"""
 
 
 class ExactContainmentIndex:
-    """Skeleton index: keeps texts in memory and scores with exact / containment.
+    """骨架索引：文本存内存，用精确匹配 / 包含关系打分。
 
-    Scanning stays inside this module so FAQRetriever does not walk the corpus.
-    Later Word2VecIndex would keep vectors/词典 here and ANN-search in ``search``.
+    扫描留在本模块内，避免 FAQRetriever 遍历语料。
     """
 
     def __init__(self) -> None:

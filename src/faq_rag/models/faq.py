@@ -1,4 +1,4 @@
-"""FAQ schemas for CRUD and later retrieval."""
+"""FAQ 的 CRUD 与后续检索用 schema。"""
 
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -11,7 +11,7 @@ def _utc_now() -> datetime:
 
 
 class FAQCreate(BaseModel):
-    """Payload for creating a FAQ entry."""
+    """创建 FAQ 条目的请求体。"""
 
     question: str = Field(..., min_length=1, description="标准问法")
     answer: str = Field(..., min_length=1, description="标准答案")
@@ -24,7 +24,7 @@ class FAQCreate(BaseModel):
 
 
 class FAQUpdate(BaseModel):
-    """Partial update payload; omitted fields are left unchanged."""
+    """部分更新请求体；未传字段保持不变。"""
 
     question: str | None = Field(default=None, min_length=1)
     answer: str | None = Field(default=None, min_length=1)
@@ -34,7 +34,7 @@ class FAQUpdate(BaseModel):
 
 
 class FAQ(FAQCreate):
-    """Stored FAQ record."""
+    """已存储的 FAQ 记录。"""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     created_at: datetime = Field(default_factory=_utc_now)

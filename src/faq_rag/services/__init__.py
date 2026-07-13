@@ -1,1 +1,1 @@
-"""Business services grouped by domain: FAQ, similarity, ask."""
+"""按领域分组的业务服务：FAQ、相似度、提问。"""

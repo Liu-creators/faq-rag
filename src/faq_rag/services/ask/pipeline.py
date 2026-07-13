@@ -1,11 +1,11 @@
-"""Ask pipeline: FAQ first, then confidence-gated rewrite / doc RAG."""
+"""提问流水线：先 FAQ，再按置信度分流改写 / 文档 RAG。"""
 
 from faq_rag.models.ask import AnswerRoute, AskRequest, AskResponse, FAQMatch
 from faq_rag.services.ask.doc_rag import answer_from_documents
 from faq_rag.services.ask.rewriter import rewrite_from_faq
 from faq_rag.services.faq import FAQRetriever, faq_retriever
 
-# Placeholder thresholds — tune once real retrieval scores exist.
+# 占位阈值 — 待真实检索分数就绪后再调优。
 CONFIDENCE_VERBATIM = 0.90  # 极高：原样返回
 CONFIDENCE_REWRITE = 0.70  # 高：允许改写
 
@@ -46,7 +46,7 @@ class AskPipeline:
                 route=AnswerRoute.FAQ_REWRITE,
                 confidence=best.score,
                 faq_match=match,
-                notes="置信度高 → FAQ 锚定改写占位",
+                notes="置信度高 → FAQ 锚定 LLM 改写",
             )
 
         return AskResponse(

@@ -1,4 +1,4 @@
-"""API route aggregation."""
+"""API 路由聚合。"""
 
 from fastapi import APIRouter
 
