@@ -301,7 +301,27 @@ uvicorn faq_rag.main:app --reload --host 0.0.0.0 --port 8000
 
 ## 数据初始化
 
-服务起来后，需要先把语料入库才能问答。FAQ 用 [CRUD API](#faq-crudmysql-持久化) 写入；文档 RAG 走 **采集 → 清洗 → 入库**，细节见仓库内 [`scripts/README.md`](scripts/README.md)：
+服务起来后，需要先把语料入库才能问答：
+
+| 类型 | 怎么写入 | 说明 |
+|------|----------|------|
+| **FAQ** | [CRUD API](#faq-crudmysql-持久化)（`POST /faqs`） | 标准问 + 相似问 + 审定答案；写 MySQL 后按需同步 Milvus |
+| **文档** | `scripts/` 流水线：**采集 → 清洗 → 入库** | 粗粒度 / 长尾知识；切块进 MySQL，向量进 Milvus |
+
+文档侧推荐命令（需已 `docker compose up -d` 且 `.env` 配置就绪）：
+
+```bash
+# 1. 采集官方文档 → data/raw/ollama_docs
+python scripts/collect_ollama_docs.py
+
+# 2. 清洗为适合 RAG 的 Markdown → data/cleaned/ollama_docs
+python scripts/clean_ollama_docs.py
+
+# 3. 切块入库（MySQL + Milvus）
+python scripts/ingest_docs.py --directory data/cleaned/ollama_docs --category ollama
+```
+
+参数、依赖、输出目录与双写说明见 **[`scripts/README.md`](scripts/README.md)**：
 
 - [文档 RAG 数据流水线](scripts/README.md#文档-rag-数据流水线)
 - [采集 Ollama 官方文档](scripts/README.md#采集-ollama-官方文档)
