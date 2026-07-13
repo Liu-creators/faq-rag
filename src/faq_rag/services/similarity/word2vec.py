@@ -29,8 +29,30 @@ class Word2VecIndex:
         if not docs:
             self._entries = []
             return
-        vectors = self._embedder.embed([doc.text for doc in docs])
+        self._entries = self._embed_entries(docs)
+
+    def upsert(self, documents: Sequence[IndexedDocument]) -> None:
+        docs = [
+            IndexedDocument(doc_id=doc.doc_id, text=doc.text.strip())
+            for doc in documents
+            if doc.text.strip()
+        ]
+        if not docs:
+            return
+        keys = {(doc.doc_id, doc.text) for doc in docs}
         self._entries = [
+            entry for entry in self._entries if (entry[0], entry[1]) not in keys
+        ]
+        self._entries.extend(self._embed_entries(docs))
+
+    def delete_by_doc_id(self, doc_id: str) -> None:
+        self._entries = [entry for entry in self._entries if entry[0] != doc_id]
+
+    def _embed_entries(
+        self, docs: Sequence[IndexedDocument]
+    ) -> list[tuple[str, str, list[float]]]:
+        vectors = self._embedder.embed([doc.text for doc in docs])
+        return [
             (doc.doc_id, doc.text, vec)
             for doc, vec in zip(docs, vectors, strict=True)
             if any(v != 0.0 for v in vec)

@@ -17,6 +17,7 @@ DEFAULT_LLM_MODEL = "deepseek-v4-flash"
 
 DEFAULT_MILVUS_URI = "http://localhost:19530"
 DEFAULT_MILVUS_COLLECTION = "faq_questions"
+DEFAULT_MILVUS_DOC_COLLECTION = "doc_chunks"
 
 DEFAULT_MYSQL_HOST = "127.0.0.1"
 DEFAULT_MYSQL_PORT = 3306
@@ -24,10 +25,15 @@ DEFAULT_MYSQL_USER = "faq"
 DEFAULT_MYSQL_PASSWORD = "faq"
 DEFAULT_MYSQL_DATABASE = "faq_rag"
 
+DEFAULT_DOC_RAW_DIR = "data/raw/ollama_docs"
+DEFAULT_DOC_RAG_TOP_K = 5
+DEFAULT_DOC_CHUNK_SIZE = 500
+DEFAULT_DOC_CHUNK_OVERLAP = 80
+
 
 @dataclass(frozen=True)
 class Settings:
-    """运行时配置。LLM 字段供改写与后续文档 RAG 共用。"""
+    """运行时配置。LLM 字段供改写与文档 RAG 共用。"""
 
     llm_api_key: str
     llm_base_url: str
@@ -36,6 +42,7 @@ class Settings:
     milvus_uri: str
     milvus_token: str
     milvus_collection: str
+    milvus_doc_collection: str
     milvus_enabled: bool
     embedding_api_key: str
     embedding_base_url: str
@@ -47,6 +54,10 @@ class Settings:
     mysql_password: str
     mysql_database: str
     database_url: str
+    doc_raw_dir: str
+    doc_rag_top_k: int
+    doc_chunk_size: int
+    doc_chunk_overlap: int
 
     @property
     def llm_configured(self) -> bool:
@@ -120,6 +131,14 @@ def get_settings() -> Settings:
             database=mysql_database,
         )
 
+    def _positive_int(name: str, default: int) -> int:
+        raw = os.getenv(name, str(default)).strip()
+        try:
+            value = int(raw) if raw else default
+        except ValueError:
+            return default
+        return value if value > 0 else default
+
     return Settings(
         llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
         llm_base_url=os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL).strip().rstrip("/")
@@ -130,6 +149,10 @@ def get_settings() -> Settings:
         milvus_token=os.getenv("MILVUS_TOKEN", "").strip(),
         milvus_collection=os.getenv("MILVUS_COLLECTION", DEFAULT_MILVUS_COLLECTION).strip()
         or DEFAULT_MILVUS_COLLECTION,
+        milvus_doc_collection=(
+            os.getenv("MILVUS_DOC_COLLECTION", DEFAULT_MILVUS_DOC_COLLECTION).strip()
+            or DEFAULT_MILVUS_DOC_COLLECTION
+        ),
         milvus_enabled=milvus_enabled,
         embedding_api_key=embedding_api_key,
         embedding_base_url=embedding_base_url,
@@ -141,4 +164,9 @@ def get_settings() -> Settings:
         mysql_password=mysql_password,
         mysql_database=mysql_database,
         database_url=database_url,
+        doc_raw_dir=os.getenv("DOC_RAW_DIR", DEFAULT_DOC_RAW_DIR).strip()
+        or DEFAULT_DOC_RAW_DIR,
+        doc_rag_top_k=_positive_int("DOC_RAG_TOP_K", DEFAULT_DOC_RAG_TOP_K),
+        doc_chunk_size=_positive_int("DOC_CHUNK_SIZE", DEFAULT_DOC_CHUNK_SIZE),
+        doc_chunk_overlap=_positive_int("DOC_CHUNK_OVERLAP", DEFAULT_DOC_CHUNK_OVERLAP),
     )

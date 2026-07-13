@@ -34,6 +34,16 @@ class FAQNotFoundError(NotFoundError):
         super().__init__(f"未找到 FAQ：{faq_id}")
 
 
+class DocumentNotFoundError(NotFoundError):
+    """文档 id 在存储中不存在。"""
+
+    code = "document_not_found"
+
+    def __init__(self, document_id: str) -> None:
+        self.document_id = document_id
+        super().__init__(f"未找到文档：{document_id}")
+
+
 class LLMConfigError(AppError):
     """LLM 凭证 / base URL 缺失或无效。"""
 

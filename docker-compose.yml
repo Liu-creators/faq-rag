@@ -1,9 +1,11 @@
-# 基础设施：MySQL（FAQ 持久化）+ Milvus standalone（混合检索）
+# 基础设施：MySQL（FAQ 持久化）+ Milvus standalone（混合检索）+ Attu（向量库 Web UI）
 # 启动：docker compose up -d
 # MySQL：localhost:3306 / faq_rag
 # Milvus：http://localhost:19530（内置 BM25 需完整 Milvus ≥2.5，不支持 Lite）
+# Attu：http://localhost:3000（Milvus 管理前端；需与 Milvus 2.5.x 版本匹配）
 #
 # 参考：https://milvus.io/docs/install_standalone-docker-compose.md
+# Attu：https://milvus.io/docs/attu.md
 
 services:
   mysql:
@@ -98,6 +100,18 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  # Milvus 官方管理前端（本仓库 Milvus 为 2.5.x，对应 Attu v2.5）
+  attu:
+    container_name: milvus-attu
+    image: zilliz/attu:v2.5
+    ports:
+      - "3000:3000"
+    environment:
+      # 容器内访问同 compose 网络中的 Milvus；勿写 localhost
+      MILVUS_URL: standalone:19530
+    depends_on:
+      - standalone
 
 networks:
   default:

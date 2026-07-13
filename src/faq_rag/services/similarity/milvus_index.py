@@ -30,6 +30,11 @@ def _entry_pk(doc_id: str, text: str) -> str:
     return digest[:_PK_MAX_LEN]
 
 
+def _escape_filter_str(value: str) -> str:
+    """转义 Milvus 布尔表达式中的字符串字面量。"""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _dense_dim_from_describe(info: object) -> int | None:
     fields = None
     if isinstance(info, dict):
@@ -169,17 +174,7 @@ class MilvusHybridIndex:
         )
         client.load_collection(self._collection)
 
-    def build(self, documents: Sequence[IndexedDocument]) -> None:
-        """全量替换集合内容（FAQ 同步用）。"""
-        client = self._get_client()
-        self._ensure_collection()
-        # 清空旧数据：过滤删掉所有主键非空行
-        try:
-            client.delete(collection_name=self._collection, filter='pk != ""')
-        except Exception as exc:  # noqa: BLE001 — 空集合等可忽略
-            logger.debug("清空集合时忽略：%s", exc)
-
-        rows: list[dict] = []
+    def _prepare_rows(self, documents: Sequence[IndexedDocument]) -> list[dict]:
         texts: list[str] = []
         meta: list[tuple[str, str, str]] = []  # pk, doc_id, text
         for doc in documents:
@@ -196,22 +191,63 @@ class MilvusHybridIndex:
             texts.append(text)
 
         if not meta:
-            return
+            return []
 
         vectors = self._embedder.embed(texts)
-        for (pk, doc_id, text), dense in zip(meta, vectors, strict=True):
-            rows.append(
-                {
-                    "pk": pk,
-                    "doc_id": doc_id,
-                    "text": text,
-                    "dense_vector": dense,
-                }
-            )
+        return [
+            {
+                "pk": pk,
+                "doc_id": doc_id,
+                "text": text,
+                "dense_vector": dense,
+            }
+            for (pk, doc_id, text), dense in zip(meta, vectors, strict=True)
+        ]
+
+    def build(self, documents: Sequence[IndexedDocument]) -> None:
+        """全量替换集合内容（启动 / 修复用）。"""
+        client = self._get_client()
+        self._ensure_collection()
+        # 清空旧数据：过滤删掉所有主键非空行
+        try:
+            client.delete(collection_name=self._collection, filter='pk != ""')
+        except Exception as exc:  # noqa: BLE001 — 空集合等可忽略
+            logger.debug("清空集合时忽略：%s", exc)
+
+        rows = self._prepare_rows(documents)
+        if not rows:
+            return
 
         client.upsert(collection_name=self._collection, data=rows)
         client.flush(self._collection)
         client.load_collection(self._collection)
+
+    def upsert(self, documents: Sequence[IndexedDocument]) -> None:
+        """增量写入；同 pk 覆盖，不清理同 doc_id 下已删除的旧文本。"""
+        rows = self._prepare_rows(documents)
+        if not rows:
+            return
+
+        client = self._get_client()
+        self._ensure_collection()
+        client.upsert(collection_name=self._collection, data=rows)
+        client.flush(self._collection)
+        client.load_collection(self._collection)
+
+    def delete_by_doc_id(self, doc_id: str) -> None:
+        """删除该 FAQ 下全部问题行。"""
+        client = self._get_client()
+        if not client.has_collection(self._collection):
+            return
+        safe_id = _escape_filter_str(doc_id[:_DOC_ID_MAX_LEN])
+        try:
+            client.delete(
+                collection_name=self._collection,
+                filter=f'doc_id == "{safe_id}"',
+            )
+            client.flush(self._collection)
+        except Exception as exc:  # noqa: BLE001 — 空集合 / 无匹配可忽略
+            logger.debug("按 doc_id 删除时忽略：%s", exc)
 
     def search(self, query: str, *, top_k: int = 1) -> list[SimilarityHit]:
         if top_k <= 0 or not query.strip():

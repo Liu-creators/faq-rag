@@ -6,8 +6,8 @@ from faq_rag.services.ask.rewriter import rewrite_from_faq
 from faq_rag.services.faq import FAQRetriever, faq_retriever
 
 # 占位阈值 — 待真实检索分数就绪后再调优。
-CONFIDENCE_VERBATIM = 0.90  # 极高：原样返回
-CONFIDENCE_REWRITE = 0.70  # 高：允许改写
+CONFIDENCE_VERBATIM = 0.95  # 极高：原样返回
+CONFIDENCE_REWRITE = 0.90  # 高：允许改写
 
 
 class AskPipeline:
@@ -17,13 +17,15 @@ class AskPipeline:
     def run(self, request: AskRequest) -> AskResponse:
         hits = self._retriever.retrieve(request.question, top_k=1)
         if not hits:
+            rag = answer_from_documents(question=request.question)
             return AskResponse(
                 question=request.question,
-                answer=answer_from_documents(question=request.question),
+                answer=rag.answer,
                 route=AnswerRoute.DOC_RAG,
                 confidence=None,
                 faq_match=None,
-                notes="FAQ 未命中 → 文档 RAG 占位",
+                sources=rag.sources or None,
+                notes=rag.notes,
             )
 
         best = hits[0]
@@ -36,6 +38,7 @@ class AskPipeline:
                 route=AnswerRoute.FAQ_VERBATIM,
                 confidence=best.score,
                 faq_match=match,
+                sources=None,
                 notes="置信度极高 → 原样返回 FAQ 标准答",
             )
 
@@ -46,16 +49,19 @@ class AskPipeline:
                 route=AnswerRoute.FAQ_REWRITE,
                 confidence=best.score,
                 faq_match=match,
+                sources=None,
                 notes="置信度高 → FAQ 锚定 LLM 改写",
             )
 
+        rag = answer_from_documents(question=request.question)
         return AskResponse(
             question=request.question,
-            answer=answer_from_documents(question=request.question),
+            answer=rag.answer,
             route=AnswerRoute.DOC_RAG,
             confidence=best.score,
             faq_match=match,
-            notes="FAQ 命中但置信度不足 → 文档 RAG 占位",
+            sources=rag.sources or None,
+            notes=rag.notes,
         )
 
 

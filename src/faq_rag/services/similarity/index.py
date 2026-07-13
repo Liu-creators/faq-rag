@@ -35,6 +35,12 @@ class SimilarityIndex(Protocol):
     def build(self, documents: Sequence[IndexedDocument]) -> None:
         """替换索引内容。实现方可在此做向量化 / 建词表。"""
 
+    def upsert(self, documents: Sequence[IndexedDocument]) -> None:
+        """按条写入或覆盖；不自动清理同 ``doc_id`` 下已变更的旧文本行。"""
+
+    def delete_by_doc_id(self, doc_id: str) -> None:
+        """删除该 ``doc_id`` 下全部索引行。"""
+
     def search(self, query: str, *, top_k: int = 1) -> list[SimilarityHit]:
         """返回最多 ``top_k`` 条唯一 ``doc_id`` 命中，按分数从高到低。"""
 
@@ -50,10 +56,27 @@ class ExactContainmentIndex:
 
     def build(self, documents: Sequence[IndexedDocument]) -> None:
         self._documents = [
-            IndexedDocument(doc_id=doc.doc_id, text=doc.text)
+            IndexedDocument(doc_id=doc.doc_id, text=doc.text.strip())
             for doc in documents
             if doc.text.strip()
         ]
+
+    def upsert(self, documents: Sequence[IndexedDocument]) -> None:
+        incoming = [
+            IndexedDocument(doc_id=doc.doc_id, text=doc.text.strip())
+            for doc in documents
+            if doc.text.strip()
+        ]
+        if not incoming:
+            return
+        keys = {(doc.doc_id, doc.text) for doc in incoming}
+        self._documents = [
+            doc for doc in self._documents if (doc.doc_id, doc.text) not in keys
+        ]
+        self._documents.extend(incoming)
+
+    def delete_by_doc_id(self, doc_id: str) -> None:
+        self._documents = [doc for doc in self._documents if doc.doc_id != doc_id]
 
     def search(self, query: str, *, top_k: int = 1) -> list[SimilarityHit]:
         if top_k <= 0 or not query.strip() or not self._documents:

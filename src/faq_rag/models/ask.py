@@ -27,6 +27,17 @@ class FAQMatch(BaseModel):
     matched_text: str = Field(..., description="实际命中的标准问或相似问")
 
 
+class DocSource(BaseModel):
+    """文档 RAG 引用的检索片段。"""
+
+    document_id: str
+    chunk_id: str
+    title: str
+    heading: str | None = None
+    score: float = Field(..., ge=0.0, le=1.0)
+    source_path: str | None = None
+
+
 class AskResponse(BaseModel):
     question: str
     answer: str
@@ -36,7 +47,11 @@ class AskResponse(BaseModel):
         description="FAQ 命中置信度；走文档 RAG 时可能为 None 或较低分",
     )
     faq_match: FAQMatch | None = None
+    sources: list[DocSource] | None = Field(
+        default=None,
+        description="文档 RAG 引用片段；FAQ 分支为 null",
+    )
     notes: str | None = Field(
         default=None,
-        description="骨架阶段说明，便于联调时看清走了哪条分支",
+        description="路由说明，便于联调时看清走了哪条分支",
     )

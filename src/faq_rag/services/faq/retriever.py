@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from faq_rag.config import Settings, get_settings
@@ -19,6 +20,11 @@ from faq_rag.services.similarity.embedder import (
     Word2VecEmbedder,
 )
 from faq_rag.services.similarity.milvus_index import MilvusHybridIndex
+
+logger = logging.getLogger(__name__)
+
+# 变更这些字段时需要同步相似度索引。
+_INDEX_FIELDS = frozenset({"question", "similar_questions", "enabled"})
 
 
 @dataclass(frozen=True)
@@ -60,11 +66,21 @@ def _default_index() -> SimilarityIndex:
     return ExactContainmentIndex()
 
 
+def _faq_documents(faq: FAQ) -> list[IndexedDocument]:
+    documents: list[IndexedDocument] = []
+    for text in (faq.question, *faq.similar_questions):
+        if text.strip():
+            documents.append(IndexedDocument(doc_id=faq.id, text=text))
+    return documents
+
+
 class FAQRetriever:
     """可插拔 SimilarityIndex 之上的薄 FAQ 适配层。
 
     自身不做打分或候选扫描 — 向量化 / 匹配在 ``similarity`` 中完成
     （Milvus 混合 / Word2Vec / ExactContainment）。
+
+    索引由 CRUD 增量维护；首次检索前若尚未就绪则全量引导一次。
     """
 
     def __init__(
@@ -75,17 +91,22 @@ class FAQRetriever:
         self._store = store or faq_store
         # index=None 时惰性创建，避免 import 时强连 Milvus / 加载模型。
         self._index: SimilarityIndex | None = index
+        self._ready = False
 
     def _get_index(self) -> SimilarityIndex:
         if self._index is None:
             self._index = _default_index()
         return self._index
 
+    def _ensure_ready(self) -> None:
+        if not self._ready:
+            self.sync_index()
+
     def retrieve(self, question: str, *, top_k: int = 1) -> list[ScoredFAQ]:
         if not question.strip() or top_k <= 0:
             return []
 
-        self.sync_index()
+        self._ensure_ready()
         hits = self._get_index().search(question, top_k=top_k)
 
         results: list[ScoredFAQ] = []
@@ -99,16 +120,50 @@ class FAQRetriever:
         return results
 
     def sync_index(self) -> None:
-        """将已启用 FAQ 的标准问 / 相似问推入相似度索引。
-
-        每次全量重建。后续可改为 CRUD 时增量 upsert。
-        """
+        """将已启用 FAQ 的标准问 / 相似问全量推入相似度索引（启动 / 修复）。"""
         documents: list[IndexedDocument] = []
         for faq in self._store.list(enabled=True):
-            for text in (faq.question, *faq.similar_questions):
-                if text.strip():
-                    documents.append(IndexedDocument(doc_id=faq.id, text=text))
+            documents.extend(_faq_documents(faq))
         self._get_index().build(documents)
+        self._ready = True
+
+    def upsert_faq(self, faq: FAQ) -> None:
+        """按单条 FAQ 增量同步索引；禁用则删除。
+
+        若索引尚未引导，跳过（下次检索会全量同步，已包含该 FAQ）。
+        """
+        if not self._ready:
+            return
+        try:
+            index = self._get_index()
+            index.delete_by_doc_id(faq.id)
+            if not faq.enabled:
+                return
+            documents = _faq_documents(faq)
+            if documents:
+                index.upsert(documents)
+        except Exception:
+            logger.exception(
+                "FAQ %s 增量索引失败，将在下次检索时全量重建", faq.id
+            )
+            self._ready = False
+
+    def remove_faq(self, faq_id: str) -> None:
+        """从索引中移除该 FAQ；索引未就绪时跳过。"""
+        if not self._ready:
+            return
+        try:
+            self._get_index().delete_by_doc_id(faq_id)
+        except Exception:
+            logger.exception(
+                "FAQ %s 索引删除失败，将在下次检索时全量重建", faq_id
+            )
+            self._ready = False
+
+    @staticmethod
+    def index_fields_changed(patch: dict) -> bool:
+        """判断 FAQUpdate 的 patch 是否影响索引。"""
+        return bool(_INDEX_FIELDS & patch.keys())
 
 
 faq_retriever = FAQRetriever()
