@@ -44,6 +44,9 @@ class SimilarityIndex(Protocol):
     def search(self, query: str, *, top_k: int = 1) -> list[SimilarityHit]:
         """返回最多 ``top_k`` 条唯一 ``doc_id`` 命中，按分数从高到低。"""
 
+    def has_data(self) -> bool:
+        """检查索引是否已有数据（用于跳过重启后的全量冷启动建库）。"""
+
 
 class ExactContainmentIndex:
     """骨架索引：文本存内存，用精确匹配 / 包含关系打分。
@@ -97,6 +100,9 @@ class ExactContainmentIndex:
 
         ranked = sorted(best_by_doc.values(), key=lambda hit: hit.score, reverse=True)
         return ranked[:top_k]
+
+    def has_data(self) -> bool:
+        return bool(self._documents)
 
     @staticmethod
     def _score_pair(query: str, candidate: str) -> float:

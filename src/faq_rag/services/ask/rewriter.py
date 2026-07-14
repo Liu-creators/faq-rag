@@ -61,3 +61,21 @@ def rewrite_from_faq(*, question: str, faq: FAQ) -> str:
     if not str(text).strip():
         raise LLMError("LLM 返回了空响应")
     return str(text).strip()
+
+
+def rewrite_from_faq_stream(*, question: str, faq: FAQ):
+    """流式返回改写结果。"""
+    chain = get_rewrite_chain()
+    try:
+        yield from chain.stream(
+            {
+                "question": question,
+                "faq_question": faq.question,
+                "faq_answer": faq.answer,
+            },
+            config={"run_name": "faq_rewrite_stream"},
+        )
+    except LLMError:
+        raise
+    except Exception as exc:
+        raise LLMError(f"LLM 请求失败：{exc}") from exc
