@@ -311,3 +311,19 @@ class MilvusHybridIndex:
 
         ranked = sorted(best_by_doc.values(), key=lambda h: h.score, reverse=True)
         return ranked[:top_k]
+
+    def has_data(self) -> bool:
+        client = self._get_client()
+        if not client.has_collection(self._collection):
+            return False
+        try:
+            res = client.query(
+                collection_name=self._collection,
+                filter='pk != ""',
+                limit=1,
+                output_fields=["pk"]
+            )
+            return len(res) > 0
+        except Exception as exc:
+            logger.debug("检查 Milvus 是否存在数据时出错：%s", exc)
+            return False

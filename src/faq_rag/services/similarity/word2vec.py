@@ -81,3 +81,6 @@ class Word2VecIndex:
 
         ranked = sorted(best_by_doc.values(), key=lambda hit: hit.score, reverse=True)
         return ranked[:top_k]
+
+    def has_data(self) -> bool:
+        return bool(self._entries)

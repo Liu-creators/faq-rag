@@ -13,7 +13,7 @@
 
 FAQ 不是唯一引擎，而是旁路式的确定性答案层：优先用 FAQ 锁口径，FAQ 不够再用文档 RAG 补覆盖。
 
-当前已具备 FAQ CRUD（**MySQL 持久化**）、一阶段检索（默认 **Milvus 混合检索**：稠密向量 + BM25 / RRF）、置信度分流，中置信区间的 FAQ 锚定 LLM 改写，以及文档 RAG 粗粒度兜底（切块入库 + 混合检索 + 带引用生成）。
+当前已具备 FAQ CRUD（**MySQL 持久化**）、一阶段检索（默认 **Milvus 混合检索**：稠密向量 + BM25 / RRF）、置信度分流，中置信区间的 FAQ 锚定 LLM 改写（**LangChain LCEL + ChatOpenAI**），以及文档 RAG 粗粒度兜底（切块入库 + 混合检索 + 带引用生成）。可选开启 **LangSmith** 观测整次 `/ask` 的检索与 LLM span。
 
 ## 整体流程
 
@@ -196,6 +196,11 @@ PY
 | `LLM_API_KEY` | 是（走改写时） | — | DeepSeek API Key |
 | `LLM_BASE_URL` | 否 | `https://api.deepseek.com` | OpenAI 兼容 Base URL |
 | `LLM_MODEL` | 否 | `deepseek-v4-flash` | 模型名 |
+| `LANGSMITH_TRACING` | 否 | `false` | 是否向 LangSmith 上报 trace |
+| `LANGSMITH_API_KEY` | 否* | — | LangSmith API Key（开启 tracing 时需要） |
+| `LANGSMITH_PROJECT` | 否 | `faq-rag` | LangSmith 项目名 |
+
+\* 未配置 `LANGSMITH_API_KEY` 时服务仍可正常回答，仅不会上报云端 trace。
 | `MILVUS_ENABLED` | 否 | `true` | 是否启用 Milvus 混合检索 |
 | `MILVUS_URI` | 否 | `http://localhost:19530` | Milvus 地址 |
 | `MILVUS_TOKEN` | 否 | （空） | 认证 token（如有） |
@@ -402,9 +407,27 @@ src/faq_rag/
       embedder.py              # Word2Vec / OpenAI 兼容稠密编码
       word2vec.py              # 内存 Word2Vec 回退
       index.py                 # Protocol + ExactContainment
-    ask/                       # 问答流水线（含文档 RAG 生成）
+    ask/                       # 问答流水线（LangChain LCEL + 文档 RAG）
+      pipeline.py              # 置信度分流；LangSmith @traceable
+      lc_retrievers.py         # 现有检索 → BaseRetriever 包装
+      rewriter.py / generator.py  # ChatPromptTemplate | ChatOpenAI
   api/routes/                  # HTTP 路由
 ```
+
+### LangChain / LangSmith
+
+问答侧 LLM 已改为 **LangChain**（`ChatOpenAI` + LCEL），Milvus 混合检索仍用现有实现，仅通过 `BaseRetriever` 包装以便在 LangSmith 中看到检索 span。
+
+开启观测（可选）：
+
+```bash
+# .env
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_pt_...
+LANGSMITH_PROJECT=faq-rag
+```
+
+未配置 API Key 时服务照常回答，仅不上报云端 trace。
 
 ## 当前进度
 
@@ -415,3 +438,4 @@ src/faq_rag/
 - [x] 稠密编码器（Word2Vec 或 OpenAI 兼容 embeddings）
 - [x] FAQ CRUD 时增量 upsert（首次检索全量引导，之后 CRUD 增量维护）
 - [x] 文档 RAG 粗粒度兜底（切块入库 + 混合检索 + 带引用生成）
+- [x] LangChain 问答编排（ChatOpenAI + LCEL）与可选 LangSmith tracing

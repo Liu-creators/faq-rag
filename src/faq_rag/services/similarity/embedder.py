@@ -97,14 +97,20 @@ class OpenAICompatibleEmbedder:
             return [v if v is not None else [0.0] * self._dim for v in out]
 
         payload = [texts[i] for i in nonempty_idx]
+        batch_size = 100
+        by_index: dict[int, list[float]] = {}
+        
         try:
-            response = self._client.embeddings.create(model=self._model, input=payload)
+            for batch_start in range(0, len(payload), batch_size):
+                batch_payload = payload[batch_start:batch_start + batch_size]
+                response = self._client.embeddings.create(model=self._model, input=batch_payload)
+                for item in response.data:
+                    by_index[batch_start + item.index] = item.embedding
         except APIError as exc:
             raise LLMError(f"Embedding 请求失败：{exc}") from exc
         except Exception as exc:
             raise LLMError(f"Embedding 请求失败：{exc}") from exc
 
-        by_index = {item.index: item.embedding for item in response.data}
         for j, src_i in enumerate(nonempty_idx):
             raw = by_index.get(j)
             if raw is None:

@@ -76,7 +76,11 @@ class DocChunkRetriever:
 
     def _ensure_ready(self) -> None:
         if not self._ready:
-            self.sync_index()
+            if self._get_index().has_data():
+                self._ready = True
+                logger.info("DocChunkRetriever 检测到索引已有数据，跳过全量启动")
+            else:
+                self.sync_index()
 
     def retrieve(self, question: str, *, top_k: int | None = None) -> list[ScoredChunk]:
         settings = self._settings or get_settings()
